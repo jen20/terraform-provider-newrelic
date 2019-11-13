@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"log"
+	"net/http"
 
 	synthetics "github.com/dollarshaveclub/new-relic-synthetics-go"
 	"github.com/hashicorp/terraform/helper/logging"
@@ -22,28 +23,18 @@ type Config struct {
 
 // Client returns a new client for accessing New Relic
 func (c *Config) Client() (*newrelic.Client, error) {
-	tlsCfg := &tls.Config{}
-	if c.CACertFile != "" {
-		caCert, _, err := pathorcontents.Read(c.CACertFile)
-		if err != nil {
-			log.Printf("Error reading CA Cert: %s", err)
-			return nil, err
-		}
-		caCertPool := x509.NewCertPool()
-		caCertPool.AppendCertsFromPEM([]byte(caCert))
-		tlsCfg.RootCAs = caCertPool
-	}
-
-	if c.InsecureSkipVerify {
-		tlsCfg.InsecureSkipVerify = true
+	tlsCfg, err := c.tlsConfig()
+	if err != nil {
+		return nil, err
 	}
 
 	nrConfig := newrelic.Config{
-		APIKey:    c.APIKey,
-		BaseURL:   c.APIURL,
-		Debug:     logging.IsDebugOrHigher(),
-		UserAgent: c.userAgent,
-		TLSConfig: tlsCfg,
+		APIKey:        c.APIKey,
+		BaseURL:       c.APIURL,
+		Debug:         logging.IsDebugOrHigher(),
+		UserAgent:     c.userAgent,
+		TLSConfig:     tlsCfg,
+		HTTPTransport: logging.NewTransport("NewRelic", http.DefaultTransport),
 	}
 
 	client := newrelic.New(nrConfig)
@@ -55,11 +46,18 @@ func (c *Config) Client() (*newrelic.Client, error) {
 
 // ClientInfra returns a new client for accessing New Relic
 func (c *Config) ClientInfra() (*newrelic.InfraClient, error) {
+	tlsCfg, err := c.tlsConfig()
+	if err != nil {
+		return nil, err
+	}
+
 	nrConfig := newrelic.Config{
-		APIKey:    c.APIKey,
-		BaseURL:   c.APIURL,
-		Debug:     logging.IsDebugOrHigher(),
-		UserAgent: c.userAgent,
+		APIKey:        c.APIKey,
+		BaseURL:       c.APIURL,
+		Debug:         logging.IsDebugOrHigher(),
+		UserAgent:     c.userAgent,
+		TLSConfig:     tlsCfg,
+		HTTPTransport: logging.NewTransport("NewRelic", http.DefaultTransport),
 	}
 
 	client := newrelic.NewInfraClient(nrConfig)
@@ -80,6 +78,26 @@ func (c *Config) ClientSynthetics() (*synthetics.Client, error) {
 	log.Printf("[INFO] New Relic Synthetics client configured")
 
 	return client, nil
+}
+
+func (c *Config) tlsConfig() (*tls.Config, error) {
+	tlsCfg := &tls.Config{}
+	if c.CACertFile != "" {
+		caCert, _, err := pathorcontents.Read(c.CACertFile)
+		if err != nil {
+			log.Printf("Error reading CA Cert: %s", err)
+			return nil, err
+		}
+		caCertPool := x509.NewCertPool()
+		caCertPool.AppendCertsFromPEM([]byte(caCert))
+		tlsCfg.RootCAs = caCertPool
+	}
+
+	if c.InsecureSkipVerify {
+		tlsCfg.InsecureSkipVerify = true
+	}
+
+	return tlsCfg, nil
 }
 
 // ProviderConfig for the custom provider
